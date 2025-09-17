@@ -5,10 +5,15 @@ const fs = require('fs')
 
 const deviceAlias = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy'];
 
+const jitter = (base, variance) => {
+    return base + (Math.random() * variance * 2) - variance
+}
+
+const now = new Date().valueOf()
 const temperatureEvent = (i) => {
     return {
         temp: Math.floor(Math.random() * 100),
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(jitter(now, 60000)).toISOString(),
         deviceId: deviceAlias[i % deviceAlias.length]
     }
 }
