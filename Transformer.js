@@ -1,11 +1,19 @@
 const { assert } = require('console');
 const dayjs = require('dayjs');
-const fs = require('fs')
+const fs = require('fs');
+const split2 = require('split2')
+
+class google {
+
+}
+
+const document = {}
 
 class Aggregation {
-    constructor(field, type, options) {
+    constructor(field, type, outputField = field, options) {
         this.type = type;
         this.field = field;
+        this.outputField = outputField
         this.options = options;
         this.sortable = ['max', 'min', 'percentile', 'median'].includes(type)
     }
@@ -71,6 +79,8 @@ class Transformer {
 
     constructor() {
         this.events = [];
+        this.visualisations = [];
+        this.checkpoints = {}
     }
 
     eval(modifier) {
@@ -123,12 +133,25 @@ class Transformer {
         return this;
     }
 
-    fileLoad(delim, parser) {
-        this.events.forEach((obj) => {
-            const data = { _raw: fs.readFileSync('./testData/' + obj._fileInput, 'utf-8').toString().split(delim).map(event => parser(event)) }
-            Object.assign(obj, data);
+    async fileLoad(delim, parser) {
+        const tasks = this.events.map(obj => {
+            const content = []
+
+            return new Promise(resolve => {
+                fs.createReadStream('./testData/' + obj._fileInput)
+                    .pipe(split2(delim))
+                    .on('data', line => {
+                        const event = parser(line)
+                        if (event !== null) content.push(event)
+                    })
+                    .on('end', () => {
+                        obj._raw = content;
+                        resolve(this)
+                    })
+            })
         })
 
+        await Promise.all(tasks)
         return this;
     }
 
@@ -138,14 +161,21 @@ class Transformer {
     }
 
     flatten() {
-        let flattened = []
+        const arraySize = this.events.reduce((acc, obj) => acc + obj._raw.length, 0)
+        let flattened = new Array(arraySize)
+        let i = 0
+
         this.events.forEach(obj => {
-            obj._raw.forEach(event => {
-                flattened.push({
+            const raws = obj._raw
+            delete obj._raw
+
+            raws.forEach(event => {
+                flattened[i++] = {
                     ...obj,
                     _raw: event,
-                })
+                }
             })
+
         })
         this.events = flattened;
         return this;
@@ -163,14 +193,12 @@ class Transformer {
 
             if (!map[key]) {
                 map[key] = {
-                    _keys: {},
-                    _stats: {},
                     _statsRaw: {},
                 }
 
                 // Add key fields
                 by.forEach(i => {
-                    map[key]._keys[i.bySplit] = item[i.bySplit]
+                    map[key][i.bySplit] = item[i.bySplit]
                 })
             }
 
@@ -181,15 +209,14 @@ class Transformer {
             })
         })
 
-
-
         const arr = Object.keys(map).map(key => {
-            const result = map[key]._stats
+            const result = map[key]
 
             aggregations.forEach(aggregation => {
-                if (!result[aggregation.field]) result[aggregation.field] = {}
                 if (aggregation.sortable) map[key]._statsRaw[aggregation.field].sort((a, b) => a - b)
-                result[aggregation.field][aggregation.type] = aggregation.calculate(map[key])
+
+                const aggregationField = aggregation.outputField
+                result[aggregationField] = aggregation.calculate(map[key])
             })
 
             delete map[key]._statsRaw
@@ -210,7 +237,7 @@ class Transformer {
         this.events.forEach(event => {
             const key = keyFromEvent(event, stats.by)
 
-            event._eventstats = stats.map[key]._stats
+            Object.assign(event, stats.map[key])
         })
 
         return this
@@ -254,7 +281,7 @@ class Transformer {
             }
 
             const eventRange = this.events.slice(start, i + 1)
-            event._streamstats = this._stats(args, eventRange).map[byKey]?._stats
+            Object.assign(event, this._stats(args, eventRange).map[byKey])
         })
 
         return this;
@@ -287,28 +314,65 @@ class Transformer {
         })
         return this;
     }
-    render() {
-        const columns = Object.keys(this.events[0])
-        const columnCode = columns.map(key => `data.addColumn('${typeof this.events[0][key]}', '${key}')`).join('\n')
-        const rows = this.events.map(event => {
-            return columns.map(key => event[key])
+
+    build(name, type) {
+        this.visualisations.push([name, type, this.events])
+        return this;
+    }
+
+    checkpoint(operation, name) {
+
+        const operations = {
+            create: () => this.checkpoints[name] = this.events,
+            retrieve: () => this.events = this.checkpoints[name],
+            delete: () => delete this.checkpoints[name]
+        }
+
+        operations[operation]()
+        return this;
+    }
+
+    toGraph(x, y, series) {
+        this.stats(
+            new Aggregation(y, 'list', y),
+            new Aggregation(series, 'list', series),
+            new By(x)
+        )
+
+        this.table(event => {
+            const obj = {
+                _time: event[x]
+            }
+            event[series].forEach((series, i) => obj[series] = event[y][i])
+            return obj
         })
-        const rowCode = `data.addRows(${JSON.stringify(rows)});`
+        return this;
+    }
 
-        const table = `        
-        var table = new google.visualization.Table(document.getElementById('table_div'));
-        table.draw(data, {showRowNumber: false, width: '80%', height: '60%'});
-        `
+    render() {
+        const createElement = (name, type, eventData) => {
+            const data = new google.visualization.DataTable();
+            const columns = Object.keys(eventData[0])
+            columns.map(key => data.addColumn(typeof eventData[0][key], key)).join('\n')
 
-        const line = `
-        var options = {
-          title: 'Company Performance',
-          legend: { position: 'bottom' }
-        };
+            const rows = eventData.map(event => {
+                return columns.map(key => event[key])
+            })
 
-        var chart = new google.visualization.LineChart(document.getElementById('chart'));
-        chart.draw(data, options);
-        `
+            data.addRows(rows);
+
+            const thisEntity = document.createElement('div')
+            thisEntity.id = name
+            document.body.appendChild(thisEntity)
+            const chartElement = new google.visualization[type](thisEntity)
+            google.visualization.events.addListener(chartElement, 'select', (e) => {
+                console.log(chartElement.getSelection()[1], chartElement.getSelection()[0])
+                tokens[name] = eventData[chartElement.getSelection()[0].row]
+                console.log(tokens[name])
+            });
+            chartElement.draw(data, { showRowNumber: false, legend: { position: 'bottom' }, title: name })
+        }
+
         fs.writeFileSync('output.html', `
 <html>
   <head>
@@ -316,16 +380,16 @@ class Transformer {
     <script type="text/javascript">
       google.charts.load('current', {'packages':['table', 'corechart']});
       google.charts.setOnLoadCallback(drawVis);
+      const tokens = {}
 
+      const createElement = ${createElement.toString()}
+      
       function drawVis() {
-        var data = new google.visualization.DataTable();
-        ${columnCode}
-        ${rowCode}
-        
-        ${line}
-        ${table}
-
+            ${this.visualisations.map(([name, type, data]) => {
+            return `createElement('${name}', '${type}', ${JSON.stringify(data)})`
+        })}
       }
+
     </script>
   </head>
   <body>

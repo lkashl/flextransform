@@ -9,6 +9,7 @@
   "author": "Kashrian Singh",
   "license": "ISC",
   "dependencies": {
-    "dayjs": "^1.11.18"
+    "dayjs": "^1.11.18",
+    "split2": "^4.2.0"
   }
 }

@@ -12,7 +12,7 @@ const jitter = (base, variance) => {
 const now = new Date().valueOf()
 const temperatureEvent = (i) => {
     return {
-        temp: Math.floor(Math.random() * 100),
+        temp: Math.floor(Math.random() * 10),
         timestamp: new Date(jitter(now, 60000)).toISOString(),
         deviceId: deviceAlias[i % deviceAlias.length]
     }

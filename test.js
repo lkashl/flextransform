@@ -1,72 +1,79 @@
 const { Transformer, By, Aggregation, Window } = require("./Transformer")
 
-new Transformer()
-    // Load folder and files
-    .fileScan('./testData')
-    .fileLoad('\n', event => JSON.parse(event))
-    .flatten()
+const main = async () => {
 
-    // Parse timestamps and make variables accessible
-    .eval(event => event._raw)
-    .parseTime('timestamp')
-    .bin('timestamp', 10000)
-    .sort('dsc', 'deviceId')
+    const fileContents = await new Transformer()
+        // Load folder and files
+        .fileScan('./testData')
+        .fileLoad('\n', event => JSON.parse(event))
 
-    // Create streamstats and eventstats 
-    .streamstats(new Aggregation('temp', 'sum'), new Aggregation('temp', 'list'), new By('deviceId'))
-    .rename(['_streamstats', '_streamstats_by'])
-    .streamstats(new Aggregation('temp', 'sum'), new Aggregation('temp', 'list'), new Window(100))
-    .eventstats(new Aggregation('temp', 'median'), new Aggregation('temp', 'count'), new Aggregation('temp', 'sum'), new By('deviceId'))
+    fileContents
+        .flatten()
 
-    .eval(event => ({ deviation: event.temp - event._eventstats.temp.median, computedMedian: event._eventstats.temp.median }))
+        // Parse timestamps and make variables accessible
+        .eval(event => event._raw)
+        .parseTime('timestamp')
+        .bin('timestamp', 10000)
+        .sort('dsc', 'deviceId')
 
-    // Evaluate the accuracy of streamstats and eventstats
-    .assert((event, i, { expect }) => {
-        if (i === 0) {
-            expect(event._streamstats.temp.list.length === 1)
-            expect(event._streamstats_by.temp.list.length === 1)
-            expect(event._streamstats.temp.sum === event._streamstats_by.temp.sum)
-            expect(event._eventstats.temp.count === 100)
-        } else if (i % 100 === 99) {
-            expect(event._streamstats.temp.list.length === 100)
-            expect(event._streamstats_by.temp.list.length === 100)
-            expect(event._streamstats.temp.sum === event._streamstats_by.temp.sum)
-            expect(event._streamstats.temp.sum === event._eventstats.temp.sum)
-            expect(event._eventstats.temp.count === 100)
-        } else if (i % 100 === 0) {
-            expect(event._streamstats.temp.list.length === 100)
-            expect(event._streamstats_by.temp.list.length === 1)
-            expect(event._eventstats.temp.count === 100)
-        }
-    })
-    .stats(
-        new Aggregation('temp', 'median'),
-        new By('deviceId'), new By('timestamp')
-    )
+        // Create streamstats and eventstats 
+        .streamstats(
+            new Aggregation('temp', 'sum', 'streamBySum'),
+            new Aggregation('temp', 'list', 'streamByList'),
+            new By('deviceId')
+        )
+        .streamstats(
+            new Aggregation('temp', 'sum', 'streamWindowSum'),
+            new Aggregation('temp', 'list', 'streamWindowList'),
+            new Window(100)
+        )
+        .eventstats(
+            new Aggregation('temp', 'median', 'eventMedian'),
+            new Aggregation('temp', 'count', 'eventCount'),
+            new Aggregation('temp', 'sum', 'eventSum'),
+            new By('deviceId')
+        )
+        // Evaluate the accuracy of streamstats and eventstats
+        .assert((event, i, { expect }) => {
+            if (i === 0) {
+                expect(event.streamWindowList.length === 1)
+                expect(event.streamByList.length === 1)
+                expect(event.streamBySum === event.streamWindowSum)
+                expect(event.eventCount === 100)
+            } else if (i % 100 === 99) {
+                expect(event.streamWindowList.length === 100)
+                expect(event.streamByList.length === 100)
+                expect(event.streamWindowSum === event.streamBySum)
+                expect(event.streamWindowSum === event.eventSum)
+                expect(event.eventCount === 100)
+            } else if (i % 100 === 0) {
+                expect(event.streamWindowList.length === 100)
+                expect(event.streamByList.length === 1)
+                expect(event.eventCount === 100)
+            }
+        })
+        .table(event => ({
+            deviation: Math.round((event.temp - event.eventMedian) / event.eventMedian * 100),
+            median: event.eventMedian,
+            temp: event.temp,
+            time: event.timestamp,
+            deviceId: event.deviceId
+        }))
+        .checkpoint('create', 'temperatureData')
+        .toGraph('time', 'temp', 'deviceId')
+        .output()
+        .sort('asc', '_time')
+        .build('Raw Temp', 'Table')
+        .build('Raw Temp', 'LineChart')
 
-    // Transformation logic to marshall into a table
-    // This needs to be reviwed to make lighter as the user shouldn't need to define this level of logic in every instance
-    .table(event => {
-        return {
-            timestamp: event._keys.timestamp,
-            deviceId: event._keys.deviceId,
-            temp: event._stats.temp.median
-        }
-    })
-    .stats(
-        new Aggregation('temp', 'list'), new Aggregation('deviceId', 'list'),
-        new By('timestamp')
-    )
-    .output()
-    .table(event => {
-        const obj = {
-            _time: event._keys.timestamp
-        }
-        event._stats.deviceId.list.forEach((device, i) => obj[device] = event._stats.temp.list[i])
-        return obj
-    })
-    .sort('asc', '_time')
-    .output()
-    .render()
+        .checkpoint('retrieve', 'temperatureData')
+        .toGraph('time', 'deviation', 'deviceId')
+        .build('Offset temp', 'Table')
+        .build('Offset temp', 'LineChart')
+        .sort('asc', '_time')
 
-console.log('end')
+        .render()
+
+}
+
+main()
