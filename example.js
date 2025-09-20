@@ -58,7 +58,7 @@ const main = async () => {
             temp: event.temp,
             time: event.timestamp,
             deviceId: event.deviceId,
-            variant: ['sensora', 'sensorb']
+            variant: ['sensora', 'sensorb', 'sensorc']
         }))
         .output()
         .mvexpand('variant')
@@ -67,7 +67,13 @@ const main = async () => {
         })
         .output()
         .checkpoint('create', 'temperatureData')
-        .toGraph('time', 'temp', 'variant', 'deviceId', { y2: ['sensorb'], sortX: 'asc' })
+        .toGraph('time', 'temp', 'variant', 'deviceId', {
+            y1Type: 'bars',
+            stacked: true,
+            y2Type: 'lines',
+            y2: ['sensorb'],
+            sortX: 'asc'
+        })
         .build('Raw Temp', 'Table')
         .build('Temp by device - ', 'LineChart')
 
@@ -78,7 +84,6 @@ const main = async () => {
         // .sort('asc', '_time')
 
         .render()
-
 }
 
 main()

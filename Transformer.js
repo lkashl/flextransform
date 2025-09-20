@@ -327,7 +327,7 @@ class Transformer {
     }
 
     render() {
-        const createElement = (name, type, eventData, { trellis, y2, sortX, trellisName }) => {
+        const createElement = (name, type, eventData, { trellis, y2, sortX, trellisName, y2Type, y1Type, stacked }) => {
             if (!trellis) eventData = [eventData]
 
             let pairs = trellisName.map((name, i) => [name, eventData[i]]);
@@ -341,16 +341,24 @@ class Transformer {
                 const data = new google.visualization.DataTable();
 
                 const series = {}, axis0 = { targetAxisIndex: 0 }, axis1 = { targetAxisIndex: 1 }
+
+                if (y1Type) axis0.type = y1Type
+                if (y2Type) axis1.type = y2Type
+
                 // Create columns
                 const columns = Object.keys(trellis[0])
                 columns.forEach((key, i) => {
                     data.addColumn(typeof trellis[0][key], key)
 
-                    if (y2 && i !== 0 && y2.includes(key)) {
-                        series[i - 1] = axis1
-                    } else {
-                        series[i - 1] = axis0
+                    if (y2 && i !== 0) {
+                        let match = false;
+                        if (y2 instanceof Array) { match = y2.includes(key) }
+                        else if (y2 instanceof RegExp) { match = y2.test(key) }
+
+                        if (match) series[i - 1] = axis1
                     }
+
+                    if (!series[1 - i]) series[i - 1] = axis0
                 })
 
                 let rows = trellis.map(event => {
@@ -374,7 +382,7 @@ class Transformer {
                 const title = trellis ? name + trellisName[i] : name
 
                 chartElement.draw(data, {
-                    series, showRowNumber: false, legend: { position: 'bottom' }, title
+                    series, showRowNumber: false, legend: { position: 'bottom' }, title, isStacked: stacked
                 })
             })
         }
