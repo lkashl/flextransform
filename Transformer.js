@@ -1,84 +1,41 @@
-const { assert } = require('console');
 const dayjs = require('dayjs');
 const fs = require('fs');
-const split2 = require('split2')
+const split2 = require('split2');
 
-class google {
+const By = require('./types/By');
+const Aggregation = require('./types/Aggregation');
+const Window = require('./types/Window')
 
-}
-
+// These globals allow us to write functions from the HTML page directly without needing to stringify
+class google { }
 const document = {}
 
-class Aggregation {
-    constructor(field, type, outputField = field, options) {
-        this.type = type;
-        this.field = field;
-        this.outputField = outputField
-        this.options = options;
-        this.sortable = ['max', 'min', 'percentile', 'median'].includes(type)
-    }
-
-    count(values) {
-        return values.length
-    }
-
-    distinctCount(values) {
-        return new Set(values).size
-    }
-
-    list(values) {
-        return values;
-    }
-
-    values(values) {
-        return [...new Set(values)];
-    }
-
-    calculate(statObj) {
-        return this[this.type](statObj._statsRaw[this.field])
-    }
-
-    max(values) {
-        return values[values.length - 1]
-    }
-
-    min(values) {
-        return values[0]
-    }
-
-    percentile(values) {
-        const index = Math.round(this.options / 100 * (values.length - 1));
-        return values[index]
-    }
-
-    median(values) {
-        const index = Math.floor((values.length - 1) / 2);
-        return values[index]
-    }
-
-    sum(values) {
-        return values.reduce((a, b) => a + b, 0)
-    }
-}
-
-class By {
-    constructor(bySplit) {
-        this.bySplit = bySplit;
-    }
-}
-
-class Window {
-    constructor(size) {
-        this.size = size;
-    }
-}
-
-
 const keyFromEvent = (event, bys) => bys.map(i => event[i.bySplit]).join('|')
+
+const _sort = (order, data, ...keys) => {
+    return data.sort((a, b) => {
+        let directive = 0;
+        keys.some(key => {
+            const type = typeof a[key];
+
+            if (type === 'number') {
+                directive = order === 'asc' ? a[key] - b[key] : b[key] - a[key];
+            } else if (type === 'string') {
+                directive = order === 'asc' ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key]);
+            }
+
+            if (directive !== 0) return true;
+        })
+
+        return directive;
+    })
+}
+
 class Transformer {
 
     constructor() {
         this.events = [];
+        this.graphFlags = { trellis: false, trellisName: null }
         this.visualisations = [];
         this.checkpoints = {}
     }
@@ -288,22 +245,7 @@ class Transformer {
     }
 
     sort(order, ...keys) {
-        this.events = this.events.sort((a, b) => {
-            let directive = 0;
-            keys.some(key => {
-                const type = typeof a[key];
-
-                if (type === 'number') {
-                    directive = order === 'asc' ? a[key] - b[key] : b[key] - a[key];
-                } else if (type === 'string') {
-                    directive = order === 'asc' ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key]);
-                }
-
-                if (directive !== 0) return true;
-            })
-
-            return directive;
-        })
+        this._events = _sort(order, this.events, keys)
         return this;
     }
 
@@ -332,45 +274,109 @@ class Transformer {
         return this;
     }
 
-    toGraph(x, y, series) {
+    mvexpand(target) {
+        const arr = []
+        this.events.forEach(event => {
+            if (!event[target]) return arr.push(event)
+            event[target].forEach((item) => {
+                arr.push({
+                    ...event,
+                    [target]: item
+                })
+            })
+        })
+
+        this.events = arr
+        return this;
+    }
+
+    toGraph(x, y, series, trellis, options = {}) {
+
         this.stats(
             new Aggregation(y, 'list', y),
             new Aggregation(series, 'list', series),
-            new By(x)
+            new Aggregation(trellis, 'values', 'trellis'),
+            new By(x), trellis ? new By(trellis) : null
         )
+
+        const trellisMap = {}
 
         this.table(event => {
             const obj = {
                 _time: event[x]
             }
             event[series].forEach((series, i) => obj[series] = event[y][i])
+
+            if (trellis) {
+                const tval = event[trellis][0]
+                if (!trellisMap[tval]) trellisMap[tval] = []
+                trellisMap[tval].push(obj)
+            }
+
             return obj
         })
+
+        if (trellis) {
+            this.graphFlags.trellis = true;
+            this.graphFlags.trellisName = Object.keys(trellisMap)
+            this.events = Object.keys(trellisMap).map(tval => trellisMap[tval])
+        }
+
+        Object.assign(this.graphFlags, options)
         return this;
     }
 
     render() {
-        const createElement = (name, type, eventData) => {
-            const data = new google.visualization.DataTable();
-            const columns = Object.keys(eventData[0])
-            columns.map(key => data.addColumn(typeof eventData[0][key], key)).join('\n')
+        const createElement = (name, type, eventData, { trellis, y2, sortX, trellisName }) => {
+            if (!trellis) eventData = [eventData]
 
-            const rows = eventData.map(event => {
-                return columns.map(key => event[key])
+            let pairs = trellisName.map((name, i) => [name, eventData[i]]);
+            pairs = pairs.sort((a, b) => a[0].localeCompare(b[0]))
+
+            // Unzip back into separate arrays
+            trellisName = pairs.map(p => p[0]);
+            eventData = pairs.map(p => p[1]);
+
+            eventData.forEach((trellis, i) => {
+                const data = new google.visualization.DataTable();
+
+                const series = {}, axis0 = { targetAxisIndex: 0 }, axis1 = { targetAxisIndex: 1 }
+                // Create columns
+                const columns = Object.keys(trellis[0])
+                columns.forEach((key, i) => {
+                    data.addColumn(typeof trellis[0][key], key)
+
+                    if (y2 && i !== 0 && y2.includes(key)) {
+                        series[i - 1] = axis1
+                    } else {
+                        series[i - 1] = axis0
+                    }
+                })
+
+                let rows = trellis.map(event => {
+                    return columns.map(key => event[key])
+                })
+
+                rows = _sort(sortX, rows, 0)
+
+                data.addRows(rows);
+
+                const thisEntity = document.createElement('div')
+                thisEntity.id = name
+                document.body.appendChild(thisEntity)
+                const chartElement = new google.visualization[type](thisEntity)
+                google.visualization.events.addListener(chartElement, 'select', (e) => {
+                    console.log(chartElement.getSelection()[1], chartElement.getSelection()[0])
+                    tokens[name] = trellis[chartElement.getSelection()[0].row]
+                    console.log(tokens[name])
+                });
+
+                const title = trellis ? name + trellisName[i] : name
+
+                chartElement.draw(data, {
+                    series, showRowNumber: false, legend: { position: 'bottom' }, title
+                })
             })
-
-            data.addRows(rows);
-
-            const thisEntity = document.createElement('div')
-            thisEntity.id = name
-            document.body.appendChild(thisEntity)
-            const chartElement = new google.visualization[type](thisEntity)
-            google.visualization.events.addListener(chartElement, 'select', (e) => {
-                console.log(chartElement.getSelection()[1], chartElement.getSelection()[0])
-                tokens[name] = eventData[chartElement.getSelection()[0].row]
-                console.log(tokens[name])
-            });
-            chartElement.draw(data, { showRowNumber: false, legend: { position: 'bottom' }, title: name })
         }
 
         fs.writeFileSync('output.html', `
@@ -382,19 +388,18 @@ class Transformer {
       google.charts.setOnLoadCallback(drawVis);
       const tokens = {}
 
+      const _sort = ${_sort.toString()}
       const createElement = ${createElement.toString()}
       
       function drawVis() {
             ${this.visualisations.map(([name, type, data]) => {
-            return `createElement('${name}', '${type}', ${JSON.stringify(data)})`
+            return `createElement('${name}', '${type}', ${JSON.stringify(data)}, ${JSON.stringify(this.graphFlags)})`
         })}
       }
 
     </script>
   </head>
   <body>
-    <div id="table_div"></div>
-    <div id="chart"></div>
   </body>
 </html>
         `)

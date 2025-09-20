@@ -57,20 +57,25 @@ const main = async () => {
             median: event.eventMedian,
             temp: event.temp,
             time: event.timestamp,
-            deviceId: event.deviceId
+            deviceId: event.deviceId,
+            variant: ['sensora', 'sensorb']
         }))
-        .checkpoint('create', 'temperatureData')
-        .toGraph('time', 'temp', 'deviceId')
         .output()
-        .sort('asc', '_time')
+        .mvexpand('variant')
+        .eval(event => {
+            if (event.variant === 'sensorb') event.temp = event.temp - 1
+        })
+        .output()
+        .checkpoint('create', 'temperatureData')
+        .toGraph('time', 'temp', 'variant', 'deviceId', { y2: ['sensorb'], sortX: 'asc' })
         .build('Raw Temp', 'Table')
-        .build('Raw Temp', 'LineChart')
+        .build('Temp by device - ', 'LineChart')
 
-        .checkpoint('retrieve', 'temperatureData')
-        .toGraph('time', 'deviation', 'deviceId')
-        .build('Offset temp', 'Table')
-        .build('Offset temp', 'LineChart')
-        .sort('asc', '_time')
+        // .checkpoint('retrieve', 'temperatureData')
+        // .toGraph('time', 'deviation', 'deviceId')
+        // .build('Offset temp', 'Table')
+        // .build('Offset temp', 'LineChart')
+        // .sort('asc', '_time')
 
         .render()
 
