@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap');
+
+body {
+    font-family: 'Roboto', Arial, sans-serif;
+}
+
+/* Chart-specific styles */
+.chart,
+.chart-container,
+canvas,
+svg,
+.chartjs-render-monitor {
+    font-family: 'Roboto', Arial, sans-serif !important;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+}
+
+.tabBar {
+    display: flex;
+    background: #dcdcdc;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+    margin-bottom: 8px;
+    width: 100%;
+    height: 32px;
+}
+
+.tabs {
+    flex: 1;
+    padding: 8px 20px;
+    cursor: pointer;
+    background: none;
+    border: none;
+    outline: none;
+    font-size: 1rem;
+    color: #555;
+    transition: background 0.3s, color 0.3s;
+    text-align: center;
+}
+
+.tabs:not(.selectedTab):hover {
+    background: #e0e0e0;
+    color: #222;
+}
+
+.selectedTab {
+    background: #1976d2;
+    color: #fff;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(25, 118, 210, 0.15);
+    transition: background 0.3s, color 0.3s;
+}
+
+#content {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0px;
+}
+
+.parentHolder {
+    display: flex;
+    margin: 2px;
+    border: 1px solid #d3d3d3;
+}
+
+.parentHolder::after {
+    border: 2px solid red;
+    /* Change color and width as needed */
+    pointer-events: none;
+    z-index: 2;
+}
+
+.tabContent {
+    opacity: 1;
+    transition: opacity 0.3s,

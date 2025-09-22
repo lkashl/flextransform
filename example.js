@@ -74,8 +74,14 @@ const main = async () => {
             y2: ['sensorb'],
             sortX: 'asc'
         })
-        .build('Raw Temp', 'Table')
-        .build('Temp by device - ', 'LineChart')
+        .build('Raw Temp', 'Table', {
+            tab: "Tables",
+            columns: 3
+        })
+        .build('Temp by device - ', 'LineChart', {
+            tab: "Graphs",
+            columns: 4
+        })
 
         // .checkpoint('retrieve', 'temperatureData')
         // .toGraph('time', 'deviation', 'deviceId')

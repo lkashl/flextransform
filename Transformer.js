@@ -6,6 +6,8 @@ const By = require('./types/By');
 const Aggregation = require('./types/Aggregation');
 const Window = require('./types/Window')
 
+const styles = fs.readFileSync('./styles.css')
+
 // These globals allow us to write functions from the HTML page directly without needing to stringify
 class google { }
 const document = {}
@@ -35,8 +37,11 @@ class Transformer {
 
     constructor() {
         this.events = [];
-        this.graphFlags = { trellis: false, trellisName: null }
         this.visualisations = [];
+        this.visualisationData = []
+        this.graphFlags = []
+        this.tabs = []
+
         this.checkpoints = {}
     }
 
@@ -257,8 +262,15 @@ class Transformer {
         return this;
     }
 
-    build(name, type) {
-        this.visualisations.push([name, type, this.events])
+    build(name, type, visualisationOptions) {
+        const data = JSON.stringify(this.events)
+        const lastData = this.visualisationData.at(-1)
+
+        if (lastData !== data) this.visualisationData.push(data)
+        this.visualisations.push([name, type, visualisationOptions, this.visualisationData.length - 1, this.graphFlags[this.graphFlags.length - 1]])
+
+        if (visualisationOptions.tab && !this.tabs.includes(visualisationOptions.tab)) this.tabs.push(visualisationOptions.tab)
+
         return this;
     }
 
@@ -316,18 +328,23 @@ class Transformer {
             return obj
         })
 
+        const graphFlags = {}
         if (trellis) {
-            this.graphFlags.trellis = true;
-            this.graphFlags.trellisName = Object.keys(trellisMap)
+            graphFlags.trellis = true;
+            graphFlags.trellisName = Object.keys(trellisMap)
             this.events = Object.keys(trellisMap).map(tval => trellisMap[tval])
         }
 
-        Object.assign(this.graphFlags, options)
+        Object.assign(graphFlags, options)
+        this.graphFlags.push(graphFlags)
         return this;
     }
 
     render() {
-        const createElement = (name, type, eventData, { trellis, y2, sortX, trellisName, y2Type, y1Type, stacked }) => {
+        const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName, y2Type, y1Type, stacked }) => {
+            if (visualisationOptions.tab !== selectedTab) return;
+
+            eventData = visualisationData[eventData]
             if (!trellis) eventData = [eventData]
 
             let pairs = trellisName.map((name, i) => [name, eventData[i]]);
@@ -369,10 +386,19 @@ class Transformer {
 
                 data.addRows(rows);
 
+                const columnCount = visualisationOptions.columns || 2
                 const thisEntity = document.createElement('div')
-                thisEntity.id = name
-                document.body.appendChild(thisEntity)
-                const chartElement = new google.visualization[type](thisEntity)
+                thisEntity.className = "parentHolder"
+                thisEntity.style = `flex: 1 0 calc(${100 / columns}% - 6px); max-width: calc(${100 / columnCount}% - 6px);`
+
+
+                const thisGraph = document.createElement('div')
+                thisGraph.className = "graphHolder"
+                thisEntity.appendChild(thisGraph)
+                document.getElementById('content').appendChild(thisEntity)
+
+                const chartElement = new google.visualization[type](thisGraph)
+
                 google.visualization.events.addListener(chartElement, 'select', (e) => {
                     console.log(chartElement.getSelection()[1], chartElement.getSelection()[0])
                     tokens[name] = trellis[chartElement.getSelection()[0].row]
@@ -382,32 +408,56 @@ class Transformer {
                 const title = trellis ? name + trellisName[i] : name
 
                 chartElement.draw(data, {
-                    series, showRowNumber: false, legend: { position: 'bottom' }, title, isStacked: stacked
+                    series, showRowNumber: false, legend: { position: 'bottom' }, title, isStacked: stacked,
+                    width: document.body.scrollWidth / columnCount - (type === "LineChart" ? 12 : 3),
+                    animation: { duration: 500, startup: true },
+                    chartArea: { width: '85%', height: '75%' }
                 })
             })
         }
 
         fs.writeFileSync('output.html', `
 <html>
-  <head>
+        <head>
+            <style>
+                ${styles}
+            </style>
     <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <script type="text/javascript">
       google.charts.load('current', {'packages':['table', 'corechart']});
       google.charts.setOnLoadCallback(drawVis);
+
+      var selectedTab = "${this.tabs[0]}"
       const tokens = {}
+      const visualisationData = [${this.visualisationData.join(',')}]
 
       const _sort = ${_sort.toString()}
       const createElement = ${createElement.toString()}
       
-      function drawVis() {
-            ${this.visualisations.map(([name, type, data]) => {
-            return `createElement('${name}', '${type}', ${JSON.stringify(data)}, ${JSON.stringify(this.graphFlags)})`
+      function drawVis(tab) {
+            if (tab) {
+                if (selectedTab) document.getElementById(selectedTab).classList.remove('selectedTab')
+                selectedTab = tab
+            } else if (${this.tabs.length > 0}) {
+                selectedTab = '${this.tabs[0]}'
+            }
+
+            if (selectedTab) document.getElementById(selectedTab).classList.add('selectedTab')
+            document.getElementById('content').innerHTML = ''
+            ${this.visualisations.map(([name, type, visualisationOptions, dataIndex, graphFlags]) => {
+            return `createElement('${name}', '${type}', ${JSON.stringify(visualisationOptions)} ,${dataIndex}, ${JSON.stringify(graphFlags)})`
         })}
       }
 
     </script>
   </head>
   <body>
+        ${this.tabs.length > 0 ? `<div class='tabBar'>
+            ${this.tabs.map(tab => `<div id=${tab} class='tabs' onclick="drawVis('${tab}')">${tab}</div>`).join("\n")}
+        </div>` : ''}
+
+    <div id='content'>
+        </div>
   </body>
 </html>
         `)
