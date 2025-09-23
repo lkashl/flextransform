@@ -6,7 +6,7 @@ const By = require('./types/By');
 const Aggregation = require('./types/Aggregation');
 const Window = require('./types/Window')
 
-const styles = fs.readFileSync('./styles.css')
+const styles = fs.readFileSync(__dirname + '/styles.css')
 
 // These globals allow us to write functions from the HTML page directly without needing to stringify
 class google { }
@@ -320,7 +320,7 @@ class Transformer {
             event[series].forEach((series, i) => obj[series] = event[y][i])
 
             if (trellis) {
-                const tval = event[trellis][0]
+                const tval = event.trellis[0]
                 if (!trellisMap[tval]) trellisMap[tval] = []
                 trellisMap[tval].push(obj)
             }
@@ -341,18 +341,21 @@ class Transformer {
     }
 
     render() {
-        const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName, y2Type, y1Type, stacked }) => {
-            if (visualisationOptions.tab !== selectedTab) return;
+        const classSafe = (name) => name.replace(/[^a-zA-Z0-9]/g, "_")
+
+        const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName = "", y2Type, y1Type, stacked }) => {
+            if (classSafe(visualisationOptions.tab) !== selectedTab) return;
 
             eventData = visualisationData[eventData]
             if (!trellis) eventData = [eventData]
+            else {
+                let pairs = trellisName.map((name, i) => [name, eventData[i]]);
+                pairs = pairs.sort((a, b) => a[0].localeCompare(b[0]))
 
-            let pairs = trellisName.map((name, i) => [name, eventData[i]]);
-            pairs = pairs.sort((a, b) => a[0].localeCompare(b[0]))
-
-            // Unzip back into separate arrays
-            trellisName = pairs.map(p => p[0]);
-            eventData = pairs.map(p => p[1]);
+                // Unzip back into separate arrays
+                trellisName = pairs.map(p => p[0]);
+                eventData = pairs.map(p => p[1]);
+            }
 
             eventData.forEach((trellis, i) => {
                 const data = new google.visualization.DataTable();
@@ -409,14 +412,15 @@ class Transformer {
 
                 chartElement.draw(data, {
                     series, showRowNumber: false, legend: { position: 'bottom' }, title, isStacked: stacked,
-                    width: document.body.scrollWidth / columnCount - (type === "LineChart" ? 12 : 3),
+                    width: document.body.scrollWidth / columnCount - (type === "LineChart" ? 12 : 24),
                     animation: { duration: 500, startup: true },
                     chartArea: { width: '85%', height: '75%' }
                 })
             })
         }
 
-        fs.writeFileSync('output.html', `
+        const filePath = './transformer_output.html'
+        fs.writeFileSync(filePath, `
 <html>
         <head>
             <style>
@@ -427,7 +431,9 @@ class Transformer {
       google.charts.load('current', {'packages':['table', 'corechart']});
       google.charts.setOnLoadCallback(drawVis);
 
-      var selectedTab = "${this.tabs[0]}"
+      const classSafe = ${classSafe.toString()}
+
+      var selectedTab = classSafe("${this.tabs[0]}")
       const tokens = {}
       const visualisationData = [${this.visualisationData.join(',')}]
 
@@ -439,7 +445,7 @@ class Transformer {
                 if (selectedTab) document.getElementById(selectedTab).classList.remove('selectedTab')
                 selectedTab = tab
             } else if (${this.tabs.length > 0}) {
-                selectedTab = '${this.tabs[0]}'
+                selectedTab = classSafe('${this.tabs[0]}')
             }
 
             if (selectedTab) document.getElementById(selectedTab).classList.add('selectedTab')
@@ -453,7 +459,7 @@ class Transformer {
   </head>
   <body>
         ${this.tabs.length > 0 ? `<div class='tabBar'>
-            ${this.tabs.map(tab => `<div id=${tab} class='tabs' onclick="drawVis('${tab}')">${tab}</div>`).join("\n")}
+            ${this.tabs.map(tab => `<div id=${classSafe(tab)} class='tabs' onclick="drawVis('${classSafe(tab)}')">${tab}</div>`).join("\n")}
         </div>` : ''}
 
     <div id='content'>
@@ -461,6 +467,8 @@ class Transformer {
   </body>
 </html>
         `)
+
+        console.log('File ouput created ', filePath)
     }
 }
 

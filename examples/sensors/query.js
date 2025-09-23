@@ -1,10 +1,10 @@
-const { Transformer, By, Aggregation, Window } = require("./Transformer")
+const { Transformer, By, Aggregation, Window } = require("../../Transformer")
 
 const main = async () => {
 
     const fileContents = await new Transformer()
         // Load folder and files
-        .fileScan('./testData')
+        .fileScan(__dirname + '/testData')
         .fileLoad('\n', event => JSON.parse(event))
 
     fileContents
@@ -75,11 +75,11 @@ const main = async () => {
             sortX: 'asc'
         })
         .build('Raw Temp', 'Table', {
-            tab: "Tables",
+            tab: "Example Table",
             columns: 3
         })
         .build('Temp by device - ', 'LineChart', {
-            tab: "Graphs",
+            tab: "Example Graphs",
             columns: 4
         })
 

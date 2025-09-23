@@ -18,6 +18,14 @@ const temperatureEvent = (i) => {
     }
 }
 
+
+try {
+    fs.mkdirSync(__dirname + '/testData/')
+} catch (err) {
+    if (err.code != "EEXIST") throw err;
+}
+
+
 for (let i = 0; i < files; i++) {
     const name = `temp_${i.toString().padStart(1, '0')}_10.jsonStream`
 
@@ -26,5 +34,5 @@ for (let i = 0; i < files; i++) {
         lines.push(JSON.stringify(temperatureEvent(i)))
     }
 
-    fs.writeFileSync('./testData/' + name, lines.join('\n'))
+    fs.writeFileSync(__dirname + '/testData/' + name, lines.join('\n'))
 }
