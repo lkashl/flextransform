@@ -1,8 +1,8 @@
-const { Transformer, By, Aggregation, Window } = require("../../Transformer")
+const { Vaporous, By, Aggregation, Window } = require("../../Vaporous")
 
 const main = async () => {
 
-    const fileContents = await new Transformer()
+    const fileContents = await new Vaporous()
         // Load folder and files
         .fileScan(__dirname + '/testData')
         .fileLoad('\n', event => JSON.parse(event))

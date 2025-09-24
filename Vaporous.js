@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 const dayjs = require('dayjs');
 const fs = require('fs');
 const split2 = require('split2');
@@ -33,7 +35,7 @@ const _sort = (order, data, ...keys) => {
     })
 }
 
-class Transformer {
+class Vaporous {
 
     constructor() {
         this.events = [];
@@ -419,7 +421,7 @@ class Transformer {
             })
         }
 
-        const filePath = './transformer_output.html'
+        const filePath = './Vaporous_generation.html'
         fs.writeFileSync(filePath, `
 <html>
         <head>
@@ -472,4 +474,4 @@ class Transformer {
     }
 }
 
-module.exports = { Transformer, Aggregation, By, Window }
+module.exports = { Vaporous, Aggregation, By, Window }

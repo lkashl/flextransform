@@ -1,8 +1,8 @@
 {
-  "name": "transformer",
-  "version": "1.0.0",
-  "description": "Library for generically transforming data using functional methods",
-  "main": "index.js",
+  "name": "vaporous",
+  "version": "0.0.1",
+  "description": "Transition data to different structured states for analytical processing",
+  "main": "Vaporous.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

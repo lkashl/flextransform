@@ -1,4 +1,5 @@
 testData
 node_modules
 .vscode
-output.html
+*.html
+*.tmp
