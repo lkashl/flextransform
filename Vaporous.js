@@ -7,6 +7,7 @@ const split2 = require('split2');
 const By = require('./types/By');
 const Aggregation = require('./types/Aggregation');
 const Window = require('./types/Window')
+const path = require('path')
 
 const styles = fs.readFileSync(__dirname + '/styles.css')
 
@@ -44,7 +45,36 @@ class Vaporous {
         this.graphFlags = []
         this.tabs = []
 
+        this.savedMethods = {}
         this.checkpoints = {}
+    }
+
+    method(operation, name, method) {
+        const operations = {
+            create: () => {
+                this.savedMethods[name] = method
+            },
+            retrieve: () => {
+                this.savedMethods[name](this)
+            },
+            delete: () => {
+                delete this.savedMethods[name]
+            }
+        }
+
+
+        operations[operation]()
+        return this
+    }
+
+    filter(...args) {
+        this.events = this.events.filter(...args)
+        return this
+    }
+
+    append(entities) {
+        this.events = this.events.concat(entities)
+        return this;
     }
 
     eval(modifier) {
@@ -91,7 +121,7 @@ class Vaporous {
         const items = fs.readdirSync(directory)
         this.events = items.map(item => {
             return {
-                _fileInput: item
+                _fileInput: path.resolve(directory, item)
             }
         })
         return this;
@@ -102,7 +132,7 @@ class Vaporous {
             const content = []
 
             return new Promise(resolve => {
-                fs.createReadStream('./testData/' + obj._fileInput)
+                fs.createReadStream(obj._fileInput)
                     .pipe(split2(delim))
                     .on('data', line => {
                         const event = parser(line)
@@ -345,7 +375,7 @@ class Vaporous {
     render() {
         const classSafe = (name) => name.replace(/[^a-zA-Z0-9]/g, "_")
 
-        const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName = "", y2Type, y1Type, stacked }) => {
+        const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName = "", y2Type, y1Type, stacked, y1Min, y2Min }) => {
             if (classSafe(visualisationOptions.tab) !== selectedTab) return;
 
             eventData = visualisationData[eventData]
@@ -416,7 +446,12 @@ class Vaporous {
                     series, showRowNumber: false, legend: { position: 'bottom' }, title, isStacked: stacked,
                     width: document.body.scrollWidth / columnCount - (type === "LineChart" ? 12 : 24),
                     animation: { duration: 500, startup: true },
-                    chartArea: { width: '85%', height: '75%' }
+                    chartArea: { width: '85%', height: '75%' },
+                    vAxis: {
+                        viewWindow: {
+                            min: y1Min
+                        }
+                    }
                 })
             })
         }
