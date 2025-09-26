@@ -20,15 +20,10 @@ const keyFromEvent = (event, bys) => bys.map(i => event[i.bySplit]).join('|')
 const _sort = (order, data, ...keys) => {
     return data.sort((a, b) => {
         let directive = 0;
+
         keys.some(key => {
-            const type = typeof a[key];
-
-            if (type === 'number') {
-                directive = order === 'asc' ? a[key] - b[key] : b[key] - a[key];
-            } else if (type === 'string') {
-                directive = order === 'asc' ? a[key].localeCompare(b[key]) : b[key].localeCompare(a[key]);
-            }
-
+            directive = typeof a[key] === 'number' ? a[key] - b[key] : a[key].localeCompare(b[key])
+            if (order === 'dsc') directive = directive * -1
             if (directive !== 0) return true;
         })
 
@@ -238,41 +233,37 @@ class Vaporous {
     }
 
     streamstats(...args) {
+        const backwardIterate = (event, i, by, maxBoundary = 0) => {
+            let backwardIndex = 0
+            const thisKey = keyFromEvent(event, by)
+            const byKey = thisKey
+
+            while (true) {
+                const target = i - backwardIndex
+
+                if (target < 0 || target < maxBoundary) break
+
+                const newKey = keyFromEvent(this.events[target], by)
+                if (thisKey !== newKey) break
+                backwardIndex++
+            }
+
+            return { byKey, start: i - backwardIndex + 1 }
+        }
+
+
         const window = args.filter(i => i instanceof Window)
         const by = args.filter(i => i instanceof By)
 
         // Perform some validation
         if (window.length > 1) throw new Error('Only one window allowed in streamstats')
-        if (window.length > 0 && by.length > 0) throw new Error('Window and By not supported together in streamstats')
 
         this.events.forEach((event, i) => {
-            let start, byKey;
-            if (window.length > 0) {
-                start = Math.max(i - window[0].size + 1, 0)
-                byKey = ""
-            } else if (by.length > 0) {
-                let backwardIndex = 0
-                const thisKey = keyFromEvent(event, by)
-                byKey = thisKey
-                let keyChange = false
-                while (!keyChange) {
-                    const target = i - backwardIndex
+            let start, byKey = "";
 
-                    if (target < 0) {
-                        keyChange = true
-                        break
-                    }
-
-                    const newKey = keyFromEvent(this.events[target], by)
-                    if (thisKey !== newKey) {
-                        keyChange = true
-                        break
-                    }
-
-                    backwardIndex++
-                }
-                start = Math.max(i - backwardIndex + 1, 0)
-            }
+            // Refine to window size 
+            if (window.length > 0) start = Math.max(i - window[0].size + 1, 0)
+            if (by.length !== 0) ({ start, byKey } = backwardIterate(event, i, by, start))
 
             const eventRange = this.events.slice(start, i + 1)
             Object.assign(event, this._stats(args, eventRange).map[byKey])
@@ -282,7 +273,7 @@ class Vaporous {
     }
 
     sort(order, ...keys) {
-        this._events = _sort(order, this.events, keys)
+        this.events = _sort(order, this.events, ...keys)
         return this;
     }
 
@@ -336,8 +327,13 @@ class Vaporous {
 
     toGraph(x, y, series, trellis, options = {}) {
 
+        if (!(y instanceof Array)) y = [y]
+        if (options.y2 instanceof RegExp) options.y2 = options.y2.toString()
+
+        const yAggregations = y.map(item => new Aggregation(item, 'list', item))
+
         this.stats(
-            new Aggregation(y, 'list', y),
+            ...yAggregations,
             new Aggregation(series, 'list', series),
             new Aggregation(trellis, 'values', 'trellis'),
             new By(x), trellis ? new By(trellis) : null
@@ -349,7 +345,11 @@ class Vaporous {
             const obj = {
                 _time: event[x]
             }
-            event[series].forEach((series, i) => obj[series] = event[y][i])
+            event[series].forEach((series, i) => {
+                y.forEach(y => {
+                    obj[`${series}_${y}`] = event[y][i]
+                })
+            })
 
             if (trellis) {
                 const tval = event.trellis[0]
@@ -376,6 +376,14 @@ class Vaporous {
         const classSafe = (name) => name.replace(/[^a-zA-Z0-9]/g, "_")
 
         const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName = "", y2Type, y1Type, stacked, y1Min, y2Min }) => {
+            if (typeof y2 === 'string') {
+                y2 = y2.split("/")
+                const flags = y2.at(-1)
+                y2.pop()
+                const content = y2.splice(1).join("/")
+                y2 = new RegExp(content, flags)
+            }
+
             if (classSafe(visualisationOptions.tab) !== selectedTab) return;
 
             eventData = visualisationData[eventData]
@@ -410,7 +418,7 @@ class Vaporous {
                         if (match) series[i - 1] = axis1
                     }
 
-                    if (!series[1 - i]) series[i - 1] = axis0
+                    if (!series[i - 1]) series[i - 1] = axis0
                 })
 
                 let rows = trellis.map(event => {

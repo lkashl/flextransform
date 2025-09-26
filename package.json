@@ -1,6 +1,6 @@
 {
   "name": "vaporous",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Transition data to different structured states for analytical processing",
   "main": "Vaporous.js",
   "scripts": {

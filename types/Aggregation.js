@@ -4,7 +4,7 @@ class Aggregation {
         this.field = field;
         this.outputField = outputField
         this.options = options;
-        this.sortable = ['max', 'min', 'percentile', 'median'].includes(type)
+        this.sortable = ['max', 'min', 'percentile', 'median', 'range'].includes(type)
     }
 
     count(values) {
@@ -28,11 +28,15 @@ class Aggregation {
     }
 
     max(values) {
-        return values[values.length - 1]
+        return values.at(-1)
     }
 
     min(values) {
         return values[0]
+    }
+
+    range(values) {
+        return values.at(-1) - values[0]
     }
 
     percentile(values) {
