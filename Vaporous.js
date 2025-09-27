@@ -11,6 +11,8 @@ const path = require('path')
 
 const styles = fs.readFileSync(__dirname + '/styles.css')
 
+const Papa = require('papaparse')
+
 // These globals allow us to write functions from the HTML page directly without needing to stringify
 class google { }
 const document = {}
@@ -122,16 +124,51 @@ class Vaporous {
         return this;
     }
 
+    async csvLoad(parser) {
+        const tasks = this.events.map(obj => {
+            const content = []
+
+            return new Promise((resolve, reject) => {
+                const thisStream = fs.createReadStream(obj._fileInput)
+
+                Papa.parse(thisStream, {
+                    header: true,
+                    skipEmptyLines: true,
+                    step: (row) => {
+                        try {
+                            const event = parser(row)
+                            if (event !== null) content.push(event)
+                        } catch (err) {
+                            reject(err)
+                        }
+                    },
+                    complete: () => {
+                        obj._raw = content
+                        resolve(this)
+                    }
+                })
+            })
+        })
+
+        await Promise.all(tasks)
+        return this;
+    }
+
     async fileLoad(delim, parser) {
         const tasks = this.events.map(obj => {
             const content = []
 
-            return new Promise(resolve => {
+            return new Promise((resolve, reject) => {
                 fs.createReadStream(obj._fileInput)
                     .pipe(split2(delim))
                     .on('data', line => {
-                        const event = parser(line)
-                        if (event !== null) content.push(event)
+                        try {
+                            const event = parser(line)
+                            if (event !== null) content.push(event)
+                        } catch (err) {
+                            throw err;
+                        }
+
                     })
                     .on('end', () => {
                         obj._raw = content;
@@ -272,6 +309,11 @@ class Vaporous {
         return this;
     }
 
+    delta(field, remapField) {
+        this.streamstats(new Aggregation(field, 'range', remapField), new Window(2))
+        return this;
+    }
+
     sort(order, ...keys) {
         this.events = _sort(order, this.events, ...keys)
         return this;
@@ -285,7 +327,10 @@ class Vaporous {
         return this;
     }
 
-    build(name, type, visualisationOptions) {
+    build(name, type, { tab = 'Default', columns = 2 }) {
+
+        const visualisationOptions = { tab, columns }
+
         const data = JSON.stringify(this.events)
         const lastData = this.visualisationData.at(-1)
 
@@ -313,10 +358,11 @@ class Vaporous {
         const arr = []
         this.events.forEach(event => {
             if (!event[target]) return arr.push(event)
-            event[target].forEach((item) => {
+            event[target].forEach((item, i) => {
                 arr.push({
                     ...event,
-                    [target]: item
+                    [target]: item,
+                    [`_mvExpand_${target}`]: i
                 })
             })
         })
@@ -346,8 +392,9 @@ class Vaporous {
                 _time: event[x]
             }
             event[series].forEach((series, i) => {
-                y.forEach(y => {
-                    obj[`${series}_${y}`] = event[y][i]
+                y.forEach(item => {
+                    const name = y.length === 1 ? series : `${series}_${item}`
+                    obj[name] = event[item][i]
                 })
             })
 
@@ -376,6 +423,7 @@ class Vaporous {
         const classSafe = (name) => name.replace(/[^a-zA-Z0-9]/g, "_")
 
         const createElement = (name, type, visualisationOptions, eventData, { trellis, y2, sortX, trellisName = "", y2Type, y1Type, stacked, y1Min, y2Min }) => {
+
             if (typeof y2 === 'string') {
                 y2 = y2.split("/")
                 const flags = y2.at(-1)
@@ -397,7 +445,7 @@ class Vaporous {
                 eventData = pairs.map(p => p[1]);
             }
 
-            eventData.forEach((trellis, i) => {
+            eventData.forEach((trellisData, i) => {
                 const data = new google.visualization.DataTable();
 
                 const series = {}, axis0 = { targetAxisIndex: 0 }, axis1 = { targetAxisIndex: 1 }
@@ -406,9 +454,9 @@ class Vaporous {
                 if (y2Type) axis1.type = y2Type
 
                 // Create columns
-                const columns = Object.keys(trellis[0])
+                const columns = Object.keys(trellisData[0])
                 columns.forEach((key, i) => {
-                    data.addColumn(typeof trellis[0][key], key)
+                    data.addColumn(typeof trellisData[0][key], key)
 
                     if (y2 && i !== 0) {
                         let match = false;
@@ -421,7 +469,7 @@ class Vaporous {
                     if (!series[i - 1]) series[i - 1] = axis0
                 })
 
-                let rows = trellis.map(event => {
+                let rows = trellisData.map(event => {
                     return columns.map(key => event[key])
                 })
 
@@ -444,7 +492,7 @@ class Vaporous {
 
                 google.visualization.events.addListener(chartElement, 'select', (e) => {
                     console.log(chartElement.getSelection()[1], chartElement.getSelection()[0])
-                    tokens[name] = trellis[chartElement.getSelection()[0].row]
+                    tokens[name] = trellisData[chartElement.getSelection()[0].row]
                     console.log(tokens[name])
                 });
 
@@ -513,7 +561,7 @@ class Vaporous {
 </html>
         `)
 
-        console.log('File ouput created ', filePath)
+        console.log('File ouput created ', path.resolve(filePath))
     }
 }
 
